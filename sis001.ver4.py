@@ -1,154 +1,120 @@
-#!/usr/bin/python
-# coding=utf-8
-
-import aiohttp
-import asyncio
-import os
-import re
 import requests
+import re
 import logging
 import time
-
-LOG_FILENAME = "d:\\sis001\\log.txt"
-FORUM_URL = 'http://38.103.161.185'
-DOWNLOAD_FOLDER = 'av'
+import socket
+from bs4 import BeautifulSoup
+import asyncio
 
 class Sis001:
     def __init__(self):
-        self.session = aiohttp.ClientSession()
-        self.browse_headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 5.1; rv:22.0) Gecko/20100101 Firefox/22.0'}
-        logging.basicConfig(filename=LOG_FILENAME, format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
-        self.forumurl = FORUM_URL
+        self.s = requests.Session()
+        self.browse_headers = {"User-agent": "Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)"}
+        self.forumurl = 'http://38.103.161.185'
         self.login()
 
-    async def close(self):
-        await self.session.close()
-
-    async def get_hash(self):
-        hash_html = await self.session.get(f'{self.forumurl}/forum/logging.php?action=login', headers=self.browse_headers)
-        hash_value = re.findall(b'<input type="hidden" name="formhash" value="(.*?)" />', await hash_html.read()).pop()
+    def getHash(self):
+        html = requests.get('http://38.103.161.185/forum/logging.php?action=login', headers=self.browse_headers)
+        soup = BeautifulSoup(html.content, 'html.parser')
+        hash_value = soup.find(type="hidden").get('value')
         return hash_value
 
-    async def login(self):
-        hash_value = await self.get_hash()
+    def login(self):
+        hash_value = self.getHash()
         login_info = {
-            "formhash": f"{hash_value}",
-            "referer": f"{self.forumurl}/forum/index.php",
+            "formhash": "%s" % hash_value,
+            "referer": "%s/forum/index.php" % self.forumurl,
             "loginfield": "username",
             "62838ebfea47071969cead9d87a2f1f7": "volstad",
             "c95b1308bda0a3589f68f75d23b15938": "194105",
             "questionid": "4",
-            "answer": b"\xd0\xec\xc0\xf6\xbb\xaa",
+            "answer": "\xd0\xec\xc0\xf6\xbb\xaa",
             "cookietime": "2592000",
             "loginmode": "",
             "styleid": "",
             "loginsubmit": "true"
         }
-
         try:
-            login_html = await self.session.post(f"{self.forumurl}/forum/logging.php?action=login&loginsubmit=true", data=login_info, headers=self.browse_headers, timeout=10)
-            login_success_info = re.findall(b'volstad', await login_html.read(), re.M | re.S)
-            if len(login_success_info) >= 1:
-                print('OK, logging success!!')
+            html = self.s.post("%s/forum/logging.php?action=login&loginsubmit=true" % self.forumurl,
+                               data=login_info, headers=self.browse_headers, timeout=10)
+            login_success_pattern = re.compile(r'volstad')
+            login_success_info = login_success_pattern.search(html.content)
+            if login_success_info:
+                print('Login success!!')
             else:
-                print('Login failed!!')
-        except requests.exceptions.RequestException as e:
-            logging.error(e)
+                print('Login fail!!')
+        except requests.exceptions.ConnectionError as e:
+            logging.info(e)
+        except requests.exceptions.HTTPError as e:
+            logging.info(e)
 
-async def down_link_imgs_torrents(topic, session):
-    print(f'GET:{topic["url"]}---{topic["title"].decode("gbk")}')
-    dirname = get_valid_filename(topic['title'].decode('gbk'))
-
-    if not os.path.exists(dirname):
-        os.makedirs(dirname)
-
-    topic_url = f"{Sis001.forumurl}/forum/{topic['url'].decode('gbk')}"
-    base_url = f"{Sis001.forumurl}/forum/"
-    
-    async with session.get(topic_url, headers=Sis001.browse_headers, timeout=30) as img_html:
-        imgs = set(re.findall(b'\<img src\=\"(http\:\/\/.*?\.jpg|attachments\/.*?\.jpg)\"', await img_html.read(), re.M | re.S))
-        torrents = set(re.findall(b'a href=\"(?P<url>attach[=0-9a-zA-Z\.\?]+).*?>(?P<title>[^<>\"]*?torrent)', await img_html.read(), re.M | re.S))
-        
-        for img in imgs:
-            img = img.decode('gbk')
-            await down_link(img, f'{dirname}/{get_valid_filename(os.path.basename(img))}', session)
-
-        for t in torrents:
-            t0 = t[0].decode('gbk')
-            t1 = t[1].decode('gbk')
-            await down_link(f"{base_url}{t0}", f"{dirname}/{get_valid_filename(t1)}", session)
-    return
-
-async def down_link(url, filename, session, is_torrent=0):
-    if os.path.exists(filename) and os.path.getsize(filename) > 0:
-        return
-
-    logging.info(url)
-    if url.find('attachments/month') >= 0:
-        url = f"{Sis001.forumurl}/forum/{url}"
-    elif url.find('attachments/day') >= 0:
-        url = f"{Sis001.forumurl}/forum/{url}"
-
-    attempts = 0
-    while attempts < 10:
+    def savePic(self, imageurl):
         try:
-            async with session.get(url, headers=Sis001.browse_headers, timeout=30) as save_html:
-                if not save_html.content:
-                    return
-                open(filename, "wb").write(await save_html.read())
-                break
-        except Exception as e:
-            attempts += 1
-            logging.error(e)
-    
-    logging.info(f"{filename}||{url}")
-    return
+            time.sleep(2)
+            filename = re.split(r'/', imageurl)
+            fName = 'd:\\img\\' + filename.pop()
+            proxies = {
+                "http1": "http://58.248.81.11:9999",
+                "http2": "http://220.199.6.54:8080",
+                "http3": "http://122.224.97.84:80",
+                "http4": "http://60.28.31.194:80",
+                "http5": "http://222.240.141.4:8080",
+            }
+            imageurl = self.s.get(imageurl, headers=self.browse_headers, timeout=10, proxies=proxies)
+            open(fName, "wb").write(imageurl.content)
+        except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError,
+                requests.exceptions.Timeout, socket.error) as e:
+            logging.info(e)
 
-def get_valid_filename(filename):
-    keepcharacters = (' ', '.', '_')
-    return "".join(c for c in filename if c.isalnum() or c in keepcharacters).rstrip()
+class Sis001Crawler:
+    def __init__(self, sis001):
+        self.sis001 = sis001
+
+    async def get_tids(self, forumurl, fid, page):
+        url = "%s/forum/forum-%s-%s.html" % (forumurl, fid, page)
+        html = self.sis001.s.get(url, headers=self.sis001.browse_headers, timeout=30)
+        tid_pattern = re.compile(r'<tbody id="normalthread_(\d+)\"')
+        tids = tid_pattern.findall(html.content)
+        for tid in tids:
+            print("page is:%s   tid is:%s" % (page, tid))
+            await self.get_pics(forumurl, tid, page)
+
+    async def get_pics(self, forumurl, tid, page):
+        try:
+            imageurls = []
+            url = "%s/forum/thread-%s-1-%s.html" % (forumurl, tid, page)
+            html = self.sis001.s.get(url, headers=self.sis001.browse_headers, timeout=30)
+            soup = BeautifulSoup(html.content, 'html.parser')
+            img = soup.find_all('img')
+            for myimg in img:
+                link = myimg.get('src')
+                attachments = re.split('/', link)
+                if attachments[0] == "attachments":
+                    imageurls.append(forumurl + "/forum/" + link.encode('utf-8'))
+                else:
+                    extension = re.split(r'\.', link)
+                    if extension.pop() == "jpg":
+                        imageurls.append(link.encode('utf-8'))
+            imageurls = list(set(imageurls))
+            for imageurl in imageurls:
+                self.sis001.savePic(imageurl)
+        except (requests.exceptions.ConnectionError, requests.exceptions.HTTPError) as e:
+            logging.info(e)
+
+async def main():
+    start = time.time()
+    sis001 = Sis001()
+    sis001_crawler = Sis001Crawler(sis001)
+    fids = {"DC": 242}  # Need to collect to forum {"DC": 411, "SF": 242, "ZP": 62}
+    pages = range(1, 10)  # Number of pages to collect
+    tasks = []
+
+    for fid in fids.values():
+        for page in pages:
+            tasks.append(sis001_crawler.get_tids(sis001.forumurl, fid, page))
+
+    await asyncio.gather(*tasks)
+    print("Elapsed Time:", (time.time() - start))
 
 if __name__ == '__main__':
-    start = time.time()
-    
-    async def main():
-        sis001 = Sis001()
-        fids = {"版面代码": 229}
-        pages = range(1, 11)
-        
-        if not os.path.exists(DOWNLOAD_FOLDER):
-            os.makedirs(DOWNLOAD_FOLDER)
-        os.chdir(DOWNLOAD_FOLDER)
-        
-        for fid in fids.values():
-            for page in pages:
-                url = f"{Sis001.forumurl}/forum/forum-{fid}-{page}.html"
-                async with sis001.session.get(url, headers=Sis001.browse_headers, timeout=30) as page_html:
-                    if not page_html.content:
-                        continue
-
-                    attempts = 0
-                    while attempts < 3:
-                        topics_html = re.findall(b'<tbody.*?normalthread.*?>.*?</tbody>', await page_html.read(), re.M | re.S)
-                        if not topics_html:
-                            attempts += 1
-                        else:
-                            break
-
-                    topics = dict()
-                    p = b'<span id=\".*?\"><a href=\"(?P<url>.*?)\".*?>(?P<title>.*?)</a>.*?</tbody>'
-                    
-                    try:
-                        for h in topics_html:
-                            gd = re.search(p, h, re.M | re.S).groupdict()
-                            topics[gd['title']] = gd
-                    except Exception as e:
-                        logging.error(e)
-                    
-                    for i in topics:
-                        await down_link_imgs_torrents(topics[i], sis001.session)
-    
     asyncio.run(main())
-    await sis001.close()
-    
-    print("Elapsed Time:", (time.time() - start))
