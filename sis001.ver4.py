@@ -1,6 +1,7 @@
 #!/usr/bin/python
 # coding=utf-8
 
+#这个版本放弃了线程改用了asyncio
 import aiohttp
 import asyncio
 import os
